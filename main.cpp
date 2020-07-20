@@ -1,30 +1,15 @@
 #include <stdlib.h>
 #include <string.h>
-#include "Image.h"
 #include "Exception.h"
 #include <fstream>
 #include <cuda_runtime_api.h>
 #include <cuda.h>
 #include "quickshift_common.h"
 
-void write_image(image_t im, const char * filename){
-	// copy from matlab style
-	Image IMGOUT(im.K > 1 ? Image::RGB : Image::L, im.N2, im.N1);
-	for(int k = 0; k < im.K; k++)
-		for(int col = 0; col < im.N2; col++)
-			for(int row = 0; row < im.N1; row++){
-				// row transpose
-				unsigned char * pt = IMGOUT.getPixelPt(col, im.N1-1-row);
-				// scale 0-255
-				pt[k] = (unsigned char) (im.I[row + col*im.N1 + k*im.N1*im.N2]/32*255);
-			}
-	// write image
-	std::ofstream ofs(filename, std::ios::binary);
-	if (!ofs) {
-			throw Exception("Could not open the file");
-	}
-	ofs<<IMGOUT;
-}
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image.h"
+#include "stb_image_write.h"
 
 image_t imseg(image_t im, int * flatmap){
 	// mean Color
@@ -55,7 +40,6 @@ image_t imseg(image_t im, int * flatmap){
 	if (roots != nonzero)
 		printf("Nonzero: %d\n", nonzero);
 	assert(roots == nonzero);
-
 
 	// create output image
 	image_t imout = im;
@@ -92,18 +76,30 @@ int * map_to_flatmap(float * map, unsigned int size){
 	return flatmap;
 }
 
-void image_to_matlab(Image & IMG, image_t & im){
+void stbImage_to_QS(stbi_uc* pixels, int width, int height, int channels, image_t & im){
 	// convert image to MATLAB style representation
-	im.N1 = IMG.getHeight();
-	im.N2 = IMG.getWidth();
-	im.K	= IMG.getPixelSize();
+	im.N1 = height;
+	im.N2 = width;
+	im.K = channels;
 	im.I = (float *) calloc(im.N1*im.N2*im.K, sizeof(float));
 	for(int k = 0; k < im.K; k++)
 		for(int col = 0; col < im.N2; col++)
 			for(int row = 0; row < im.N1; row++){
-				unsigned char * pt = IMG.getPixelPt(col, im.N1-1-row);
-				im.I[row + col*im.N1 + k*im.N1*im.N2] = 32. * pt[k] / 255.; // Scale 0-32
+				stbi_uc pixel = pixels[channels * (row * width + col) + k];
+				im.I[row + col*im.N1 + k*im.N1*im.N2] = 32. * pixel / 255.; // Scale 0-32
 			}
+}
+
+stbi_uc* QS_to_stbImage(image_t im, stbi_uc * pixels){
+	stbi_uc * result = (stbi_uc *) calloc(im.N1*im.N2*im.K, sizeof(stbi_uc));
+	// copy from matlab style
+	for(int k = 0; k < im.K; k++)
+		for(int col = 0; col < im.N2; col++)
+			for(int row = 0; row < im.N1; row++){
+				stbi_uc pixel = pixels[im.K * (row * im.N2 + col) + k];
+				result[im.K * (row * im.N2 + col) + k] = (stbi_uc) (im.I[row + col*im.N1 + k*im.N1*im.N2]/32*255); // scale 0-255
+			}
+	return result;
 }
 
 int main(int argc, char ** argv){
@@ -121,18 +117,16 @@ int main(int argc, char ** argv){
 	float tau = ::atof(argv[4]);
 
 	// read image
-	Image IMG;
-	std::ifstream ifs(file, std::ios::binary);
-	if (!ifs) {
-		throw Exception("Could not open the file");
-	}
-	ifs>>IMG;
 	image_t im;
-	image_to_matlab(IMG, im);
+	int width, height, channels;
+	stbi_uc* pixels = stbi_load(file, &width, &height, &channels, 0);
+	printf("\n# Reading \'%s\' [%dx%d pxs] and %d channel(s)\n",file,width,height,channels);
+	stbImage_to_QS(pixels,width,height,channels,im);
 
 	// memory setup
 	float *map, *E, *gaps;
 	int * flatmap;
+	stbi_uc* out_pixels;
 	image_t imout;
 	map = (float *) calloc(im.N1*im.N2, sizeof(float)) ;
 	gaps = (float *) calloc(im.N1*im.N2, sizeof(float)) ;
@@ -140,30 +134,31 @@ int main(int argc, char ** argv){
 
 	// QUICKSHIFT
 	if(!strcmp(mode,"cpu")){
-		printf("\n# Executing Quickshift in CPU mode...\nInput image: %s\nSigma: %.1f\nTau: %.1f\n",file,sigma,tau);
 		quickshift(im, sigma, tau, map, gaps, E);
 	} else if(!strcmp(mode,"gpu")){
-		printf("\n# Executing Quickshift in GPU mode...\nInput image: %s\nSigma: %.1f\nTau: %.1f\n",file,sigma,tau);
 		quickshift_gpu(im, sigma, tau, map, gaps, E);
-	} else printf("Mode must be cpu or gpu.\n");
+	} else { printf("Mode must be cpu or gpu.\n"); exit(-1); }
+
+	printf("# Executing Quickshift in %s mode...\nSigma: %.1f\nTau: %.1f\n",mode,sigma,tau);
 
 	// consistency check
 	for(int p = 0; p < im.N1*im.N2; p++)
 		if(map[p] == p) assert(gaps[p] == INF);
 
-	// output image
-	flatmap = map_to_flatmap(map, im.N1*im.N2);
-	imout = imseg(im, flatmap);
-	
-	// writing output file name
+	// output file name
 	char output[1024];
 	sprintf(output, "%s", file);
 	char * point = strrchr(output, '.');
 	if(point) *point = '\0';
-	sprintf(output, "%s-%s_%.0f-%.0f.pnm", output, mode, sigma, tau);
+	sprintf(output, "%s-%s_%.0f-%.0f.jpg", output, mode, sigma, tau);
 
-	// writing image
-	write_image(imout, output);
+	// write output image
+	flatmap = map_to_flatmap(map, im.N1*im.N2);
+	imout = imseg(im, flatmap);
+	out_pixels = QS_to_stbImage(imout,pixels);
+	stbi_write_jpg(output, width, height, channels, out_pixels, 100);
+	
+	printf("\n");
 
 	// cleanup
 	free(flatmap);
@@ -172,4 +167,5 @@ int main(int argc, char ** argv){
 	free(map);
 	free(E);
 	free(gaps);
+	stbi_image_free(pixels);
 }
