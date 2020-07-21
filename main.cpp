@@ -12,24 +12,22 @@
 // check and timer
 #include "common.h"
 
-qs_image imseg(qs_image image, int * flatmap){
-	// mean Color
+qs_image image_segmentation(qs_image image, int * flatmap, int &roots){
 	float * meancolor = (float *) calloc(image.height*image.width*image.channels, sizeof(float)) ;
 	float * counts = (float *) calloc(image.height*image.width, sizeof(float)) ;
-
+	// mean color
 	for (int p = 0; p < image.height*image.width; p++){
 		counts[flatmap[p]]++;
 		for (int k = 0; k < image.channels; k++)
 			meancolor[flatmap[p] + k*image.height*image.width] += image.data[p + k*image.height*image.width];
 	}
-
-	int roots = 0;
+	// count roots
+	roots = 0;
 	for (int p = 0; p < image.height*image.width; p++){
 		if (flatmap[p] == p)
 			roots++;
 	}
-	printf("    Roots:        %d\n", roots);
-
+	// check if different nonzero
 	int nonzero = 0;
 	for (int p = 0; p < image.height*image.width; p++){
 		if (counts[p] > 0){
@@ -41,26 +39,24 @@ qs_image imseg(qs_image image, int * flatmap){
 	if (roots != nonzero)
 		printf("Nonzero: %d\n", nonzero);
 	assert(roots == nonzero);
-
 	// create output image
 	qs_image imout = image;
 	imout.data = (float *) calloc(image.height*image.width*image.channels, sizeof(float));
 	for (int p = 0; p < image.height*image.width; p++)
 		for (int k = 0; k < image.channels; k++)
 			imout.data[p + k*image.height*image.width] = meancolor[flatmap[p] + k*image.height*image.width];
-
+	// cleanup
 	free(meancolor);
 	free(counts);
-
 	return imout;
 }
 
 int * map_to_flatmap(float * map, unsigned int size){
-	// flatmap
+	// first level flatmap
 	int *flatmap = (int *) malloc(size*sizeof(int)) ;
 	for (unsigned int p = 0; p < size; p++)
 		flatmap[p] = map[p];
-
+	// flattern
 	bool changed = true;
 	while (changed){
 		changed = false;
@@ -69,11 +65,9 @@ int * map_to_flatmap(float * map, unsigned int size){
 			flatmap[p] = flatmap[flatmap[p]];
 		}
 	}
-
 	// consistency check
 	for (unsigned int p = 0; p < size; p++)
 		assert(flatmap[p] == flatmap[flatmap[p]]);
-
 	return flatmap;
 }
 
@@ -104,7 +98,7 @@ int main(int argc, char ** argv){
 
 	// check options
 	if (argc != 5){
-		printf("USAGE: Quickshift <image> <mode>[cpu/gpu] <sigma> <tau>\n\n");
+		printf("USAGE: Quickshift <image> <mode>[cpu/gpu] <sigma> <dist>\n\n");
 		exit(-1);
 	}
 
@@ -112,7 +106,7 @@ int main(int argc, char ** argv){
 	char *file = argv[1];
 	char *mode = argv[2];
 	float sigma = ::atof(argv[3]);
-	float tau = ::atof(argv[4]);
+	float dist = ::atof(argv[4]);
 
 	// read image
 	qs_image image;
@@ -123,7 +117,7 @@ int main(int argc, char ** argv){
 
 	// memory setup
 	float *map, *E, *gaps;
-	int * flatmap;
+	int * flatmap, roots;
 	stbi_uc* out_pixels;
 	qs_image imout;
 	map = (float *) calloc(image.height*image.width, sizeof(float)) ;
@@ -131,15 +125,14 @@ int main(int argc, char ** argv){
 	E = (float *) calloc(image.height*image.width, sizeof(float)) ;
 
 	// QUICKSHIFT
-	printf("# Executing Quickshift in %s mode...\n   Sigma: %.1f\n   Tau:   %.1f\n",mode,sigma,tau);
+	printf("# Executing Quickshift in %s mode...\n   Sigma: %.1f\n   Dist:   %.1f\n",mode,sigma,dist);
 	double start = seconds();
 	if(!strcmp(mode,"cpu")){
-		quickshift_cpu(image, sigma, tau, map, gaps, E);
+		quickshift_cpu(image, sigma, dist, map, gaps, E);
 	} else if(!strcmp(mode,"gpu")){
-		quickshift_gpu(image, sigma, tau, map, gaps, E);
+		quickshift_gpu(image, sigma, dist, map, gaps, E);
 	} else { printf("Mode must be cpu or gpu.\n"); exit(-1); }
 	double stop = seconds();
-	printf("# Complete\n    Elapsed time: %f sec\n", stop - start);
 
 	// consistency check
 	for(int p = 0; p < image.height*image.width; p++)
@@ -150,14 +143,15 @@ int main(int argc, char ** argv){
 	sprintf(output, "%s", file);
 	char * point = strrchr(output, '.');
 	if(point) *point = '\0';
-	sprintf(output, "%s-%s_%.0f-%.0f.jpg", output, mode, sigma, tau);
+	sprintf(output, "%s-%s_%.0f-%.0f.jpg", output, mode, sigma, dist);
 
 	// write output image
 	flatmap = map_to_flatmap(map, image.height*image.width);
-	imout = imseg(image, flatmap);
+	imout = image_segmentation(image, flatmap, roots);
 	out_pixels = QS_to_stbImage(imout);
 	stbi_write_jpg(output, width, height, channels, out_pixels, 100);
-	
+	printf("# Complete\n    Elapsed time: %f sec\n    Roots:        %d\n", stop - start, roots);
+
 	// cleanup
 	printf("\n");
 	free(flatmap);

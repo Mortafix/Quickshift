@@ -86,12 +86,12 @@ inner(float const * data,
 }
 
 
-void quickshift_cpu(qs_image image, float sigma, float tau, float * map, float * gaps, float * E)
+void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E)
 {
   int verb = 1 ;
 
   float *M = 0, *n = 0;
-  float tau2;
+  float dist2;
   
   int channels, d;
   int height,width, i1,i2, j1,j2, R, tR;
@@ -105,7 +105,7 @@ void quickshift_cpu(qs_image image, float sigma, float tau, float * map, float *
 
   d = 2 + channels ; /* Total dimensions include spatial component (x,y) */
   
-  tau2  = tau*tau;
+  dist2  = dist*dist;
 
   
   if (medoid) { /* n and M are only used in mediod shift */
@@ -114,7 +114,7 @@ void quickshift_cpu(qs_image image, float sigma, float tau, float * map, float *
   }
 
   R = (int) ceil (3 * sigma) ;
-  tR = (int) ceil (tau) ;
+  tR = (int) ceil (dist) ;
   
   if (verb) {
     printf("quickshift: [height,width,channels]: [%d,%d,%d]\n", height,width,channels) ;
@@ -123,7 +123,7 @@ void quickshift_cpu(qs_image image, float sigma, float tau, float * map, float *
     /* R is ceil(3 * sigma) and determines the window size to accumulate
      * similarity */
     printf("quickshift: R:       %d\n", R) ; 
-    printf("quickshift: tau:     %g\n", tau) ;
+    printf("quickshift: dist:     %g\n", dist) ;
     printf("quickshift: tR:      %d\n", tR) ;
   }
 
@@ -293,7 +293,7 @@ void quickshift_cpu(qs_image image, float sigma, float tau, float * map, float *
           for (j1 = j1min ; j1 <= j1max ; ++ j1) {            
             if (E [j1 + height * j2] > E0) {
               float Dij = distance(data,height,width,channels, i1,i2, j1,j2) ;           
-              if (Dij <= tau2 && Dij < d_best) {
+              if (Dij <= dist2 && Dij < d_best) {
                 d_best = Dij ;
                 j1_best = j1 ;
                 j2_best = j2 ;
@@ -304,7 +304,7 @@ void quickshift_cpu(qs_image image, float sigma, float tau, float * map, float *
         
         /* map is the index of the best pair */
         /* gaps_i is the minimal distance, inf implies no Ej > Ei within
-         * distance tau from the point */
+         * distance dist from the point */
         map [i1 + height * i2] = j1_best + height * j2_best ; /* + 1 ; */
         if (map[i1 + height * i2] != i1 + height * i2)
           gaps[i1 + height * i2] = sqrt(d_best) ;

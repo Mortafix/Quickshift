@@ -16,8 +16,8 @@ typedef struct _qs_image {
   int height, width, channels;
 } qs_image;
 
-void quickshift_cpu(qs_image image, float sigma, float tau, float * map, float * gaps, float * E);
+void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E);
 extern "C" 
-void quickshift_gpu(qs_image image, float sigma, float tau, float * map, float * gaps, float * E);
+void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E);
 
 #endif

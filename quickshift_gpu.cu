@@ -43,7 +43,7 @@ int iDivUp(int num, int denom)
 
 
 extern "C"
-__global__ void find_neighbors_gpu(const float * data, int height, int width, int channels, float * E, float tau2, int tR, float * map, float * gaps)
+__global__ void find_neighbors_gpu(const float * data, int height, int width, int channels, float * E, float dist2, int tR, float * map, float * gaps)
 {   
   int i1 = blockIdx.y * blockDim.y + threadIdx.y;
   int i2 = blockIdx.x * blockDim.x + threadIdx.x;
@@ -77,7 +77,7 @@ __global__ void find_neighbors_gpu(const float * data, int height, int width, in
       if (TEXE(j1,j2) > E0) {
         float Dij;
         distance(data,height,width,channels, v, j1,j2,Dij) ;
-        if (Dij <= tau2 && Dij < d_best) {
+        if (Dij <= dist2 && Dij < d_best) {
           d_best = Dij ;
           j1_best = j1 ;
           j2_best = j2 ;
@@ -88,7 +88,7 @@ __global__ void find_neighbors_gpu(const float * data, int height, int width, in
   
   /* map is the index of the best pair */
   /* gaps_i is the minimal distance, inf implies no Ej > Ei within
-   * distance tau from the point */
+   * distance dist from the point */
   map [i1 + height * i2] = j1_best + height * j2_best ; /* + 1 ; */
   if (map[i1 + height * i2] != i1 + height * i2)
     gaps[i1 + height * i2] = sqrt(d_best) ;
@@ -152,7 +152,7 @@ __global__ void compute_E_gpu(const float * data, int height, int width, int cha
 
 
 extern "C" 
-void quickshift_gpu(qs_image image, float sigma, float tau, float * map, float * gaps, float * E)
+void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E)
 {
 #if USE_TEX_I
   cudaArray * cu_array_I;
@@ -185,7 +185,7 @@ void quickshift_gpu(qs_image image, float sigma, float tau, float * map, float *
 
   int verb = 0 ;
 
-  float tau2;
+  float dist2;
   
   int channels;
   int height,width, R, tR;
@@ -196,7 +196,7 @@ void quickshift_gpu(qs_image image, float sigma, float tau, float * map, float *
 
   //d = 2 + channels ; /* Total dimensions include spatial component (x,y) */
   
-  tau2  = tau*tau;
+  dist2  = dist*dist;
 
   unsigned int size = image.height*image.width * sizeof(float);
   cudaMalloc( (void**) &data, size*image.channels);
@@ -208,7 +208,7 @@ void quickshift_gpu(qs_image image, float sigma, float tau, float * map, float *
   cudaMemset( E_d, 0, size);
 
   R = (int) ceil (3 * sigma) ;
-  tR = (int) ceil (tau) ;
+  tR = (int) ceil (dist) ;
   
   if (verb) {
     printf("quickshiftGPU: [height,width,channels]: [%d,%d,%d]\n", height,width,channels) ;
@@ -217,7 +217,7 @@ void quickshift_gpu(qs_image image, float sigma, float tau, float * map, float *
     /* R is ceil(3 * sigma) and determines the window size to accumulate
      * similarity */
     printf("quickshiftGPU: R:       %d\n", R) ; 
-    printf("quickshiftGPU: tau:     %g\n", tau) ;
+    printf("quickshiftGPU: dist:     %g\n", dist) ;
     printf("quickshiftGPU: tR:      %d\n", tR) ;
   }
 
@@ -254,7 +254,7 @@ void quickshift_gpu(qs_image image, float sigma, float tau, float * map, float *
    *                                               Find best neighbors
    * -------------------------------------------------------------- */
   
-  find_neighbors_gpu <<<dimGrid,dimBlock>>> (data, height ,width, channels, E_d, tau2,
+  find_neighbors_gpu <<<dimGrid,dimBlock>>> (data, height ,width, channels, E_d, dist2,
       tR, map_d, gaps_d);
 
   cudaThreadSynchronize();
