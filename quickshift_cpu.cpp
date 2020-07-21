@@ -1,32 +1,24 @@
-/** @internal
- ** @file:       quickshift.cpp
- ** @author:     Brian Fulkerson
- ** @author:     Andrea Vedaldi
- ** @brief:      Quickshift command line 
- **/
-
 #include <math.h>
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "quickshift_common.h"
-/*#include <cutil_inline.h> /* for timers */
+#include "quickshift_cmn.h"
 
 /** -----------------------------------------------------------------
  ** @internal
  ** @brief Computes the accumulated channel L2 distance between i,j + the distance between i,j
  **
- ** @param I    input image buffer
- ** @param N1   size of the first dimension of the image
- ** @param N2   size of the second dimension of the image
- ** @param K    number of channels
+ ** @param data    input image buffer
+ ** @param height   size of the first dimension of the image
+ ** @param width   size of the second dimension of the image
+ ** @param channels    number of channels
  ** @param i1   first dimension index of the first pixel to compare
  ** @param i2   second dimension of the first pixel
  ** @param j1   index of the second pixel to compare
  ** @param j2   second dimension of the second pixel
  **
- ** Takes the L2 distance between the values in I at pixel i and j, accumulating along K channels
+ ** Takes the L2 distance between the values in data at pixel i and j, accumulating along channels channels
  ** and adding in the distance between i,j in the image.
  ** 
  ** @return the distance as described above
@@ -34,8 +26,8 @@
 
 inline
 float
-distance(float const * I, 
-         int N1, int N2, int K,
+distance(float const * data, 
+         int height, int width, int channels,
          int i1, int i2,
          int j1, int j2) 
 {
@@ -44,11 +36,11 @@ distance(float const * I,
   int d2 = j2 - i2 ;
   int k ;
   dist += d1*d1 + d2*d2 ;
-  // For k = 0...K-1, d+= L2 distance between I(i1,i2,k) and I(j1,j2,k)
-  for (k = 0 ; k < K ; ++k) {
+  // For k = 0...channels-1, d+= L2 distance between data(i1,i2,k) and data(j1,j2,k)
+  for (k = 0 ; k < channels ; ++k) {
     float d = 
-      I [i1 + N1 * i2 + (N1*N2) * k] - 
-      I [j1 + N1 * j2 + (N1*N2) * k] ;
+      data [i1 + height * i2 + (height*width) * k] - 
+      data [j1 + height * j2 + (height*width) * k] ;
     dist += d*d ;
   }
   return dist ;
@@ -59,17 +51,17 @@ distance(float const * I,
  ** @brief Computes the accumulated channel inner product between i,j + the
  **        distance between i,j
  ** 
- ** @param I    input image buffer
- ** @param N1   size of the first dimension of the image
- ** @param N2   size of the second dimension of the image
- ** @param K    number of channels
+ ** @param data    input image buffer
+ ** @param height   size of the first dimension of the image
+ ** @param width   size of the second dimension of the image
+ ** @param channels    number of channels
  ** @param i1   first dimension index of the first pixel to compare
  ** @param i2   second dimension of the first pixel
  ** @param j1   index of the second pixel to compare
  ** @param j2   second dimension of the second pixel
  **
- ** Takes the channel-wise inner product between the values in I at pixel i and
- ** j, accumulating along K channels and adding in the inner product between i,j in
+ ** Takes the channel-wise inner product between the values in data at pixel i and
+ ** j, accumulating along channels channels and adding in the inner product between i,j in
  ** the image.
  ** 
  ** @return the inner product as described above
@@ -77,55 +69,55 @@ distance(float const * I,
 
 inline
 float
-inner(float const * I, 
-      int N1, int N2, int K,
+inner(float const * data, 
+      int height, int width, int channels,
       int i1, int i2,
       int j1, int j2) 
 {
   float ker = 0 ;
   int k ;
   ker += i1*j1 + i2*j2 ;
-  for (k = 0 ; k < K ; ++k) {
+  for (k = 0 ; k < channels ; ++k) {
     ker += 
-      I [i1 + N1 * i2 + (N1*N2) * k] *
-      I [j1 + N1 * j2 + (N1*N2) * k] ;
+      data [i1 + height * i2 + (height*width) * k] *
+      data [j1 + height * j2 + (height*width) * k] ;
   }
   return ker ;
 }
 
 
-void quickshift_cpu(image_t im, float sigma, float tau, float * map, float * gaps, float * E)
+void quickshift_cpu(qs_image image, float sigma, float tau, float * map, float * gaps, float * E)
 {
   int verb = 1 ;
 
   float *M = 0, *n = 0;
   float tau2;
   
-  int K, d;
-  int N1,N2, i1,i2, j1,j2, R, tR;
+  int channels, d;
+  int height,width, i1,i2, j1,j2, R, tR;
 
   int medoid = 0 ;
 
-  float const * I = im.I;
-  N1 = im.N1;
-  N2 = im.N2;
-  K = im.K;
+  float const * data = image.data;
+  height = image.height;
+  width = image.width;
+  channels = image.channels;
 
-  d = 2 + K ; /* Total dimensions include spatial component (x,y) */
+  d = 2 + channels ; /* Total dimensions include spatial component (x,y) */
   
   tau2  = tau*tau;
 
   
   if (medoid) { /* n and M are only used in mediod shift */
-    M = (float *) calloc(N1*N2*d, sizeof(float)) ;
-    n = (float *) calloc(N1*N2,   sizeof(float)) ;
+    M = (float *) calloc(height*width*d, sizeof(float)) ;
+    n = (float *) calloc(height*width,   sizeof(float)) ;
   }
 
   R = (int) ceil (3 * sigma) ;
   tR = (int) ceil (tau) ;
   
   if (verb) {
-    printf("quickshift: [N1,N2,K]: [%d,%d,%d]\n", N1,N2,K) ;
+    printf("quickshift: [height,width,channels]: [%d,%d,%d]\n", height,width,channels) ;
     printf("quickshift: type: %s\n", medoid ? "medoid" : "quick");
     printf("quickshift: sigma:   %g\n", sigma) ;
     /* R is ceil(3 * sigma) and determines the window size to accumulate
@@ -143,9 +135,9 @@ void quickshift_cpu(image_t im, float sigma, float tau, float * map, float * gap
    * image with itself
    */
   if (n) { 
-    for (i2 = 0 ; i2 < N2 ; ++ i2) {
-      for (i1 = 0 ; i1 < N1 ; ++ i1) {        
-        n [i1 + N1 * i2] = inner(I,N1,N2,K,
+    for (i2 = 0 ; i2 < width ; ++ i2) {
+      for (i1 = 0 ; i1 < height ; ++ i1) {        
+        n [i1 + height * i2] = inner(data,height,width,channels,
                                  i1,i2,
                                  i1,i2) ;
       }
@@ -172,20 +164,20 @@ void quickshift_cpu(image_t im, float sigma, float tau, float * map, float * gap
      0 = dissimilar to everything, windowsize = identical
   */
   
-  for (i2 = 0 ; i2 < N2 ; ++ i2) {
-    for (i1 = 0 ; i1 < N1 ; ++ i1) {
+  for (i2 = 0 ; i2 < width ; ++ i2) {
+    for (i1 = 0 ; i1 < height ; ++ i1) {
       
       float Ei = 0;
-      int j1min = VL_MAX(i1 - R, 0   ) ;
-      int j1max = VL_MIN(i1 + R, N1-1) ;
-      int j2min = VL_MAX(i2 - R, 0   ) ;
-      int j2max = VL_MIN(i2 + R, N2-1) ;      
+      int j1min = MAX(i1 - R, 0   ) ;
+      int j1max = MIN(i1 + R, height-1) ;
+      int j2min = MAX(i2 - R, 0   ) ;
+      int j2max = MIN(i2 + R, width-1) ;      
       
       /* For each pixel in the window compute the distance between it and the
        * source pixel */
       for (j2 = j2min ; j2 <= j2max ; ++ j2) {
         for (j1 = j1min ; j1 <= j1max ; ++ j1) {
-          float Dij = distance(I,N1,N2,K, i1,i2, j1,j2) ;          
+          float Dij = distance(data,height,width,channels, i1,i2, j1,j2) ;          
           /* Make distance a similarity */ 
           float Fij = exp(- Dij / (2*sigma*sigma)) ;
 
@@ -195,20 +187,20 @@ void quickshift_cpu(image_t im, float sigma, float tau, float * map, float * gap
           if (M) {
             /* Accumulate votes for the median */
             int k ;
-            M [i1 + N1*i2 + (N1*N2) * 0] += j1 * Fij ;
-            M [i1 + N1*i2 + (N1*N2) * 1] += j2 * Fij ;
-            for (k = 0 ; k < K ; ++k) {
-              M [i1 + N1*i2 + (N1*N2) * (k+2)] += 
-                I [j1 + N1*j2 + (N1*N2) * k] * Fij ;
+            M [i1 + height*i2 + (height*width) * 0] += j1 * Fij ;
+            M [i1 + height*i2 + (height*width) * 1] += j2 * Fij ;
+            for (k = 0 ; k < channels ; ++k) {
+              M [i1 + height*i2 + (height*width) * (k+2)] += 
+                data [j1 + height*j2 + (height*width) * k] * Fij ;
             }
           } 
           
         } /* j1 */ 
       } /* j2 */
       /* Normalize */
-      E [i1 + N1 * i2] = Ei / ((j1max-j1min)*(j2max-j2min));
+      E [i1 + height * i2] = Ei / ((j1max-j1min)*(j2max-j2min));
       
-      /*E [i1 + N1 * i2] = Ei ; */
+      /*E [i1 + height * i2] = Ei ; */
 
     }  /* i1 */
   } /* i2 */
@@ -230,35 +222,35 @@ void quickshift_cpu(image_t im, float sigma, float tau, float * map, float * gap
     
     /* 
        Qij = - nj Ei - 2 sum_k Gjk Mik
-       n is I.^2
+       n is data.^2
     */
     
     /* medoid shift */
-    for (i2 = 0 ; i2 < N2 ; ++i2) {
-      for (i1 = 0 ; i1 < N1 ; ++i1) {
+    for (i2 = 0 ; i2 < width ; ++i2) {
+      for (i1 = 0 ; i1 < height ; ++i1) {
         
         float sc_best = 0  ;
         /* j1/j2 best are the best indicies for each i */
         float j1_best = i1 ;
         float j2_best = i2 ; 
         
-        int j1min = VL_MAX(i1 - R, 0   ) ;
-        int j1max = VL_MIN(i1 + R, N1-1) ;
-        int j2min = VL_MAX(i2 - R, 0   ) ;
-        int j2max = VL_MIN(i2 + R, N2-1) ;      
+        int j1min = MAX(i1 - R, 0   ) ;
+        int j1max = MIN(i1 + R, height-1) ;
+        int j2min = MAX(i2 - R, 0   ) ;
+        int j2max = MIN(i2 + R, width-1) ;      
         
         for (j2 = j2min ; j2 <= j2max ; ++ j2) {
           for (j1 = j1min ; j1 <= j1max ; ++ j1) {            
             
-            float Qij = - n [j1 + j2 * N1] * E [i1 + i2 * N1] ;
+            float Qij = - n [j1 + j2 * height] * E [i1 + i2 * height] ;
             int k ;
 
-            Qij -= 2 * j1 * M [i1 + i2 * N1 + (N1*N2) * 0] ;
-            Qij -= 2 * j2 * M [i1 + i2 * N1 + (N1*N2) * 1] ;
-            for (k = 0 ; k < K ; ++k) {
+            Qij -= 2 * j1 * M [i1 + i2 * height + (height*width) * 0] ;
+            Qij -= 2 * j2 * M [i1 + i2 * height + (height*width) * 1] ;
+            for (k = 0 ; k < channels ; ++k) {
               Qij -= 2 * 
-                I [j1 + j2 * N1 + (N1*N2) * k] *
-                M [i1 + i2 * N1 + (N1*N2) * (k + 2)] ;
+                data [j1 + j2 * height + (height*width) * k] *
+                M [i1 + i2 * height + (height*width) * (k + 2)] ;
             }
             
             if (Qij > sc_best) {
@@ -273,8 +265,8 @@ void quickshift_cpu(image_t im, float sigma, float tau, float * map, float * gap
          * notation
          * gaps_i is the score of the best match
          */
-        map [i1 + N1 * i2] = j1_best + N1 * j2_best ; /*+ 1 ; */
-        gaps[i1 + N1 * i2] = sc_best ;
+        map [i1 + height * i2] = j1_best + height * j2_best ; /*+ 1 ; */
+        gaps[i1 + height * i2] = sc_best ;
       }
     }  
 
@@ -284,23 +276,23 @@ void quickshift_cpu(image_t im, float sigma, float tau, float * map, float * gap
      * density (E). If there is no j s.t. Ej > Ei, then gaps_i == inf (a root
      * node in one of the trees of merges).
      */
-    for (i2 = 0 ; i2 < N2 ; ++i2) {
-      for (i1 = 0 ; i1 < N1 ; ++i1) {
+    for (i2 = 0 ; i2 < width ; ++i2) {
+      for (i1 = 0 ; i1 < height ; ++i1) {
         
-        float E0 = E [i1 + N1 * i2] ;
+        float E0 = E [i1 + height * i2] ;
         float d_best = INF ;
         float j1_best = i1   ;
         float j2_best = i2   ; 
         
-        int j1min = VL_MAX(i1 - tR, 0   ) ;
-        int j1max = VL_MIN(i1 + tR, N1-1) ;
-        int j2min = VL_MAX(i2 - tR, 0   ) ;
-        int j2max = VL_MIN(i2 + tR, N2-1) ;      
+        int j1min = MAX(i1 - tR, 0   ) ;
+        int j1max = MIN(i1 + tR, height-1) ;
+        int j2min = MAX(i2 - tR, 0   ) ;
+        int j2max = MIN(i2 + tR, width-1) ;      
         
         for (j2 = j2min ; j2 <= j2max ; ++ j2) {
           for (j1 = j1min ; j1 <= j1max ; ++ j1) {            
-            if (E [j1 + N1 * j2] > E0) {
-              float Dij = distance(I,N1,N2,K, i1,i2, j1,j2) ;           
+            if (E [j1 + height * j2] > E0) {
+              float Dij = distance(data,height,width,channels, i1,i2, j1,j2) ;           
               if (Dij <= tau2 && Dij < d_best) {
                 d_best = Dij ;
                 j1_best = j1 ;
@@ -313,11 +305,11 @@ void quickshift_cpu(image_t im, float sigma, float tau, float * map, float * gap
         /* map is the index of the best pair */
         /* gaps_i is the minimal distance, inf implies no Ej > Ei within
          * distance tau from the point */
-        map [i1 + N1 * i2] = j1_best + N1 * j2_best ; /* + 1 ; */
-        if (map[i1 + N1 * i2] != i1 + N1 * i2)
-          gaps[i1 + N1 * i2] = sqrt(d_best) ;
+        map [i1 + height * i2] = j1_best + height * j2_best ; /* + 1 ; */
+        if (map[i1 + height * i2] != i1 + height * i2)
+          gaps[i1 + height * i2] = sqrt(d_best) ;
         else
-          gaps[i1 + N1 * i2] = d_best; /* inf */
+          gaps[i1 + height * i2] = d_best; /* inf */
       }
     }  
   }

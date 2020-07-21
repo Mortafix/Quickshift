@@ -3,7 +3,7 @@
 #include <fstream>
 #include <cuda_runtime_api.h>
 #include <cuda.h>
-#include "quickshift_common.h"
+#include "quickshift_cmn.h"
 // read/write image
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -12,30 +12,30 @@
 // check and timer
 #include "common.h"
 
-image_t imseg(image_t im, int * flatmap){
+qs_image imseg(qs_image image, int * flatmap){
 	// mean Color
-	float * meancolor = (float *) calloc(im.N1*im.N2*im.K, sizeof(float)) ;
-	float * counts = (float *) calloc(im.N1*im.N2, sizeof(float)) ;
+	float * meancolor = (float *) calloc(image.height*image.width*image.channels, sizeof(float)) ;
+	float * counts = (float *) calloc(image.height*image.width, sizeof(float)) ;
 
-	for (int p = 0; p < im.N1*im.N2; p++){
+	for (int p = 0; p < image.height*image.width; p++){
 		counts[flatmap[p]]++;
-		for (int k = 0; k < im.K; k++)
-			meancolor[flatmap[p] + k*im.N1*im.N2] += im.I[p + k*im.N1*im.N2];
+		for (int k = 0; k < image.channels; k++)
+			meancolor[flatmap[p] + k*image.height*image.width] += image.data[p + k*image.height*image.width];
 	}
 
 	int roots = 0;
-	for (int p = 0; p < im.N1*im.N2; p++){
+	for (int p = 0; p < image.height*image.width; p++){
 		if (flatmap[p] == p)
 			roots++;
 	}
 	printf("    Roots:        %d\n", roots);
 
 	int nonzero = 0;
-	for (int p = 0; p < im.N1*im.N2; p++){
+	for (int p = 0; p < image.height*image.width; p++){
 		if (counts[p] > 0){
 			nonzero++;
-			for (int k = 0; k < im.K; k++)
-				meancolor[p + k*im.N1*im.N2] /= counts[p];
+			for (int k = 0; k < image.channels; k++)
+				meancolor[p + k*image.height*image.width] /= counts[p];
 		}
 	}
 	if (roots != nonzero)
@@ -43,11 +43,11 @@ image_t imseg(image_t im, int * flatmap){
 	assert(roots == nonzero);
 
 	// create output image
-	image_t imout = im;
-	imout.I = (float *) calloc(im.N1*im.N2*im.K, sizeof(float));
-	for (int p = 0; p < im.N1*im.N2; p++)
-		for (int k = 0; k < im.K; k++)
-			imout.I[p + k*im.N1*im.N2] = meancolor[flatmap[p] + k*im.N1*im.N2];
+	qs_image imout = image;
+	imout.data = (float *) calloc(image.height*image.width*image.channels, sizeof(float));
+	for (int p = 0; p < image.height*image.width; p++)
+		for (int k = 0; k < image.channels; k++)
+			imout.data[p + k*image.height*image.width] = meancolor[flatmap[p] + k*image.height*image.width];
 
 	free(meancolor);
 	free(counts);
@@ -77,25 +77,25 @@ int * map_to_flatmap(float * map, unsigned int size){
 	return flatmap;
 }
 
-void stbImage_to_QS(stbi_uc* pixels, int width, int height, int channels, image_t & im){
-	im.N1 = height;
-	im.N2 = width;
-	im.K = channels;
-	im.I = (float *) calloc(im.N1*im.N2*im.K, sizeof(float));
-	for(int k = 0; k < im.K; k++)
-		for(int col = 0; col < im.N2; col++)
-			for(int row = 0; row < im.N1; row++){
+void stbImage_to_QS(stbi_uc* pixels, int width, int height, int channels, qs_image & image){
+	image.height = height;
+	image.width = width;
+	image.channels = channels;
+	image.data = (float *) calloc(image.height*image.width*image.channels, sizeof(float));
+	for(int k = 0; k < image.channels; k++)
+		for(int col = 0; col < image.width; col++)
+			for(int row = 0; row < image.height; row++){
 				stbi_uc pixel = pixels[channels * (row * width + col) + k];
-				im.I[row + col*im.N1 + k*im.N1*im.N2] = 32. * pixel / 255.; // Scale 0-32
+				image.data[row + col*image.height + k*image.height*image.width] = 32. * pixel / 255.; // Scale 0-32
 			}
 }
 
-stbi_uc* QS_to_stbImage(image_t im){
-	stbi_uc * result = (stbi_uc *) calloc(im.N1*im.N2*im.K, sizeof(stbi_uc));
-	for(int k = 0; k < im.K; k++)
-		for(int col = 0; col < im.N2; col++)
-			for(int row = 0; row < im.N1; row++){
-				result[im.K * (row * im.N2 + col) + k] = (stbi_uc) (im.I[row + col*im.N1 + k*im.N1*im.N2]/32*255); // scale 0-255
+stbi_uc* QS_to_stbImage(qs_image image){
+	stbi_uc * result = (stbi_uc *) calloc(image.height*image.width*image.channels, sizeof(stbi_uc));
+	for(int k = 0; k < image.channels; k++)
+		for(int col = 0; col < image.width; col++)
+			for(int row = 0; row < image.height; row++){
+				result[image.channels * (row * image.width + col) + k] = (stbi_uc) (image.data[row + col*image.height + k*image.height*image.width]/32*255); // scale 0-255
 			}
 	return result;
 }
@@ -115,34 +115,34 @@ int main(int argc, char ** argv){
 	float tau = ::atof(argv[4]);
 
 	// read image
-	image_t im;
+	qs_image image;
 	int width, height, channels;
 	stbi_uc* pixels = stbi_load(file, &width, &height, &channels, 0);
-	printf("\n# Reading \'%s\' [%dx%d pxs] and %d channel(s)\n",file,width,height,channels);
-	stbImage_to_QS(pixels,width,height,channels,im);
+	printf("\n# Reading \'%s\' [%dx%d pxs, %d channel(s)]\n",file,width,height,channels);
+	stbImage_to_QS(pixels,width,height,channels,image);
 
 	// memory setup
 	float *map, *E, *gaps;
 	int * flatmap;
 	stbi_uc* out_pixels;
-	image_t imout;
-	map = (float *) calloc(im.N1*im.N2, sizeof(float)) ;
-	gaps = (float *) calloc(im.N1*im.N2, sizeof(float)) ;
-	E = (float *) calloc(im.N1*im.N2, sizeof(float)) ;
+	qs_image imout;
+	map = (float *) calloc(image.height*image.width, sizeof(float)) ;
+	gaps = (float *) calloc(image.height*image.width, sizeof(float)) ;
+	E = (float *) calloc(image.height*image.width, sizeof(float)) ;
 
 	// QUICKSHIFT
 	printf("# Executing Quickshift in %s mode...\n   Sigma: %.1f\n   Tau:   %.1f\n",mode,sigma,tau);
 	double start = seconds();
 	if(!strcmp(mode,"cpu")){
-		quickshift_cpu(im, sigma, tau, map, gaps, E);
+		quickshift_cpu(image, sigma, tau, map, gaps, E);
 	} else if(!strcmp(mode,"gpu")){
-		quickshift_gpu(im, sigma, tau, map, gaps, E);
+		quickshift_gpu(image, sigma, tau, map, gaps, E);
 	} else { printf("Mode must be cpu or gpu.\n"); exit(-1); }
 	double stop = seconds();
 	printf("# Complete\n    Elapsed time: %f sec\n", stop - start);
 
 	// consistency check
-	for(int p = 0; p < im.N1*im.N2; p++)
+	for(int p = 0; p < image.height*image.width; p++)
 		if(map[p] == p) assert(gaps[p] == INF);
 
 	// output file name
@@ -153,16 +153,16 @@ int main(int argc, char ** argv){
 	sprintf(output, "%s-%s_%.0f-%.0f.jpg", output, mode, sigma, tau);
 
 	// write output image
-	flatmap = map_to_flatmap(map, im.N1*im.N2);
-	imout = imseg(im, flatmap);
+	flatmap = map_to_flatmap(map, image.height*image.width);
+	imout = imseg(image, flatmap);
 	out_pixels = QS_to_stbImage(imout);
 	stbi_write_jpg(output, width, height, channels, out_pixels, 100);
 	
 	// cleanup
 	printf("\n");
 	free(flatmap);
-	free(imout.I);
-	free(im.I);
+	free(imout.data);
+	free(image.data);
 	free(map);
 	free(E);
 	free(gaps);
