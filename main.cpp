@@ -4,11 +4,13 @@
 #include <cuda_runtime_api.h>
 #include <cuda.h>
 #include "quickshift_common.h"
-
+// read/write image
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image.h"
 #include "stb_image_write.h"
+// check and timer
+#include "common.h"
 
 image_t imseg(image_t im, int * flatmap){
 	// mean Color
@@ -26,7 +28,7 @@ image_t imseg(image_t im, int * flatmap){
 		if (flatmap[p] == p)
 			roots++;
 	}
-	printf("Roots: %d\n", roots);
+	printf("    Roots:        %d\n", roots);
 
 	int nonzero = 0;
 	for (int p = 0; p < im.N1*im.N2; p++){
@@ -129,13 +131,15 @@ int main(int argc, char ** argv){
 	E = (float *) calloc(im.N1*im.N2, sizeof(float)) ;
 
 	// QUICKSHIFT
+	printf("# Executing Quickshift in %s mode...\n   Sigma: %.1f\n   Tau:   %.1f\n",mode,sigma,tau);
+	double start = seconds();
 	if(!strcmp(mode,"cpu")){
 		quickshift_cpu(im, sigma, tau, map, gaps, E);
 	} else if(!strcmp(mode,"gpu")){
 		quickshift_gpu(im, sigma, tau, map, gaps, E);
 	} else { printf("Mode must be cpu or gpu.\n"); exit(-1); }
-
-	printf("# Executing Quickshift in %s mode...\nSigma: %.1f\nTau: %.1f\n",mode,sigma,tau);
+	double stop = seconds();
+	printf("# Complete\n    Elapsed time: %f sec\n", stop - start);
 
 	// consistency check
 	for(int p = 0; p < im.N1*im.N2; p++)
