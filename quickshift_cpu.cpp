@@ -94,7 +94,7 @@ inner(float const * I,
 }
 
 
-void quickshift(image_t im, float sigma, float tau, float * map, float * gaps, float * E)
+void quickshift_cpu(image_t im, float sigma, float tau, float * map, float * gaps, float * E)
 {
   int verb = 1 ;
 

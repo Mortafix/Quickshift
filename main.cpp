@@ -76,7 +76,6 @@ int * map_to_flatmap(float * map, unsigned int size){
 }
 
 void stbImage_to_QS(stbi_uc* pixels, int width, int height, int channels, image_t & im){
-	// convert image to MATLAB style representation
 	im.N1 = height;
 	im.N2 = width;
 	im.K = channels;
@@ -89,13 +88,11 @@ void stbImage_to_QS(stbi_uc* pixels, int width, int height, int channels, image_
 			}
 }
 
-stbi_uc* QS_to_stbImage(image_t im, stbi_uc * pixels){
+stbi_uc* QS_to_stbImage(image_t im){
 	stbi_uc * result = (stbi_uc *) calloc(im.N1*im.N2*im.K, sizeof(stbi_uc));
-	// copy from matlab style
 	for(int k = 0; k < im.K; k++)
 		for(int col = 0; col < im.N2; col++)
 			for(int row = 0; row < im.N1; row++){
-				stbi_uc pixel = pixels[im.K * (row * im.N2 + col) + k];
 				result[im.K * (row * im.N2 + col) + k] = (stbi_uc) (im.I[row + col*im.N1 + k*im.N1*im.N2]/32*255); // scale 0-255
 			}
 	return result;
@@ -133,7 +130,7 @@ int main(int argc, char ** argv){
 
 	// QUICKSHIFT
 	if(!strcmp(mode,"cpu")){
-		quickshift(im, sigma, tau, map, gaps, E);
+		quickshift_cpu(im, sigma, tau, map, gaps, E);
 	} else if(!strcmp(mode,"gpu")){
 		quickshift_gpu(im, sigma, tau, map, gaps, E);
 	} else { printf("Mode must be cpu or gpu.\n"); exit(-1); }
@@ -154,12 +151,11 @@ int main(int argc, char ** argv){
 	// write output image
 	flatmap = map_to_flatmap(map, im.N1*im.N2);
 	imout = imseg(im, flatmap);
-	out_pixels = QS_to_stbImage(imout,pixels);
+	out_pixels = QS_to_stbImage(imout);
 	stbi_write_jpg(output, width, height, channels, out_pixels, 100);
 	
-	printf("\n");
-
 	// cleanup
+	printf("\n");
 	free(flatmap);
 	free(imout.I);
 	free(im.I);
