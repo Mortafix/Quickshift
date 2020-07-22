@@ -125,7 +125,7 @@ int main(int argc, char ** argv){
 	E = (float *) calloc(image.height*image.width, sizeof(float)) ;
 
 	// QUICKSHIFT
-	printf("# Executing Quickshift in %s mode...\n   Sigma: %.1f\n   Dist:   %.1f\n",mode,sigma,dist);
+	printf("# Executing Quickshift in %s mode...\n   Sigma: %.1f\n   Dist:  %.1f\n",mode,sigma,dist);
 	double start = seconds();
 	if(!strcmp(mode,"cpu")){
 		quickshift_cpu(image, sigma, dist, map, gaps, E);
