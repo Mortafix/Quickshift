@@ -4,222 +4,198 @@
 #include <stdio.h>
 #include "quickshift_cmn.h"
 
-texture<float, 3, cudaReadModeElementType> texI;
-texture<float, 2, cudaReadModeElementType> texE;
+texture<float, 3, cudaReadModeElementType> texture_pixels;
+texture<float, 2, cudaReadModeElementType> texture_density;
 
-#define USE_TEX_E 0
-#define USE_TEX_I 0
-
-#if USE_TEX_I
-	#define TEXI(x,y,c) tex3D(texI, x + 0.5f, y + 0.5f, c + 0.5f)
-#else
-	#define TEXI(x,y,c) data [ (x) + height*(y) + width*height*k ]
-#endif
-
-#if USE_TEX_E
-	#define TEXE(x,y) tex2D(texE, x + 0.5f, y + 0.5f)
-#else
-	#define TEXE(x,y) E [ (x) + height* (y)]
-#endif
-
-#define distance(data,height,width,channels,v,j1,j2,dist)			\
-{																	\
-	dist = 0;														\
-	int d1 = j1 - i1;												\
-	int d2 = j2 - i2;												\
-	int k;															\
-	dist += d1*d1 + d2*d2;										 	\
-	for (k = 0; k < channels; ++k) {								\
-		float d =	v[k] - TEXI(j1,j2,k);							\
-		dist += d*d;												\
-	}																\
+__device__ float get_pixel(int with_texture, int x, int y, int ch, int height, int width, const float * data){
+	if(with_texture) return tex3D(texture_pixels, x+0.5f, y+0.5f, ch+0.5f);
+	else return data[x + height*y + width*height*ch];
 }
 
-extern "C"
-int iDivUp(int num, int denom){
-	return (num % denom != 0) ? (num / denom + 1) : (num / denom);
+__device__ float get_density(int with_texture, int x, int y, int height, float * E){
+	if(with_texture) return tex2D(texture_density, x+0.5f, y+0.5f);
+	else return E[x + height*y];
 }
 
-
-extern "C"
-__global__ void find_neighbors_gpu(const float * data, int height, int width, int channels, float * E, float dist, int Rd, float * map, float * gaps){	 
-	int i1 = blockIdx.y * blockDim.y + threadIdx.y;
-	int i2 = blockIdx.x * blockDim.x + threadIdx.x;
-	if (i1 >= height || i2 >= width) return; // out of bounds
-
-	int j1,j2;
-			
-	// varibales for best neihbor	
-	float E0 = TEXE(i1, i2);
-	float d_best = INF;
-	float j1_best = i1	;
-	float j2_best = i2	; 
-	
-	// initialize boundaries from dist
-	int j1min = MAX(i1 - Rd, 0	 );
-	int j1max = MIN(i1 + Rd, height-1);
-	int j2min = MAX(i2 - Rd, 0	 );
-	int j2max = MIN(i2 + Rd, width-1);			
- 
-	// cache the center value in registers
-	float v[3];
-	for (int k = 0; k < channels; ++k) {
-		v[k] =	TEXI(i1,i2,k);
+__device__ float distance(const float * data, int height, int width, int channels, float * v, int x_col, int x_row, int y_col, int y_row, int with_texture){
+	int d1 = y_col - x_col;
+	int d2 = y_row - x_row;
+	int k;
+	float dist = d1*d1 + d2*d2;										 
+	for (k = 0; k < channels; ++k) {
+		float d = v[k] - get_pixel(with_texture,y_col,y_row,k,height,width,data);
+		dist += d*d;
 	}
+	return dist;
+}
 
-	for (j2 = j2min; j2 <= j2max; ++ j2) {
-		for (j1 = j1min; j1 <= j1max; ++ j1) {						
-			if (TEXE(j1,j2) > E0) {
-				float Dij;
-				distance(data,height,width,channels, v, j1,j2,Dij);
+int divide_grid(int num, int den){
+	return (num % den != 0) ? (num / den + 1) : (num / den);
+}
+
+
+__global__ void find_neighbors(const float * data, int height, int width, int channels, float * E, float dist, int Rd, float * map, float * gaps, int with_texture){	 
+	
+	// thread index
+	int x_col = blockIdx.y * blockDim.y + threadIdx.y;
+	int x_row = blockIdx.x * blockDim.x + threadIdx.x;
+	if (x_col >= height || x_row >= width) return; // out of bounds
+
+	int y_col,y_row;
+
+	// varibales for best neighbor
+	float E0 = get_density(with_texture,x_col,x_row,height,E);
+	float d_best = INF;
+	float y_col_best = x_col	;
+	float y_row_best = x_row	; 
+
+	// initialize boundaries from dist
+	int y_col_min = MAX(x_col - Rd, 0);
+	int y_col_max = MIN(x_col + Rd, height-1);
+	int y_row_min = MAX(x_row - Rd, 0);
+	int y_row_max = MIN(x_row + Rd, width-1);
+ 
+	// cache the center value
+	float v[3];
+	for (int k = 0; k < channels; ++k)
+		v[k] = get_pixel(with_texture,x_col,x_row,k,height,width,data);
+
+	for (y_row = y_row_min; y_row <= y_row_max; ++ y_row) {
+		for (y_col = y_col_min; y_col <= y_col_max; ++ y_col) {
+			if (get_density(with_texture,y_col,y_row,height,E) > E0) {
+				float Dij = distance(data,height,width,channels,v,x_col,x_row,y_col,y_row,with_texture);
 				if (Dij <= dist*dist && Dij < d_best) {
 					d_best = Dij;
-					j1_best = j1;
-					j2_best = j2;
+					y_col_best = y_col;
+					y_row_best = y_row;
 				}
 			}
 		}
 	}
-	
+
 	// map is the index of the best pair
 	// gaps is the minimal distance, INF = root
-	map [i1 + height * i2] = j1_best + height * j2_best; /* + 1; */
-	if (map[i1 + height * i2] != i1 + height * i2) gaps[i1 + height * i2] = sqrt(d_best);
-	else gaps[i1 + height * i2] = d_best;
+	map [x_col + height * x_row] = y_col_best + height * y_row_best;
+	if (map[x_col + height * x_row] != x_col + height * x_row) gaps[x_col + height * x_row] = sqrt(d_best);
+	else gaps[x_col + height * x_row] = d_best;
 }
 
-extern "C"
-__global__ void compute_E_gpu(const float * data, int height, int width, int channels, int R, float sigma, float * E, float * n, float * M){
-	
+__global__ void compute_density(const float * data, int height, int width, int channels, int R, float sigma, float * E, int with_texture){
+
 	// thread index
-	int i1 = blockIdx.y * blockDim.y + threadIdx.y;
-	int i2 = blockIdx.x * blockDim.x + threadIdx.x;
-	if (i1 >= height || i2 >= width) return; // out of bounds
-	int j1,j2;
-	
+	int x_col = blockIdx.y * blockDim.y + threadIdx.y;
+	int x_row = blockIdx.x * blockDim.x + threadIdx.x;
+	if (x_col >= height || x_row >= width) return; // out of bounds
+	int y_col,y_row;
+
 	// initialize boundaries from sigma
-	int j1min = MAX(i1 - R, 0	 );
-	int j1max = MIN(i1 + R, height-1);
-	int j2min = MAX(i2 - R, 0	 );
-	int j2max = MIN(i2 + R, width-1);			
+	int y_col_min = MAX(x_col - R, 0);
+	int y_col_max = MIN(x_col + R, height-1);
+	int y_row_min = MAX(x_row - R, 0);
+	int y_row_max = MIN(x_row + R, width-1);
 	float Ei = 0;
 
 	// cache the center value in registers
 	float v[3];
-	for (int k = 0; k < channels; ++k) {
-		v[k] = TEXI(i1,i2,k);
-	}
+	for (int k = 0; k < channels; ++k)
+		v[k] = get_pixel(with_texture,x_col,x_row,k,height,width,data);
 
 	// for each pixel in the area (sigma) compute the distance between it and the source pixel
-	for (j2 = j2min; j2 <= j2max; ++ j2) {
-		for (j1 = j1min; j1 <= j1max; ++ j1) {
-			float Dij;
-			distance(data, height, width, channels,v ,j1, j2, Dij);
+	for (y_row = y_row_min; y_row <= y_row_max; ++ y_row) {
+		for (y_col = y_col_min; y_col <= y_col_max; ++ y_col) {
+			float Dij = distance(data,height,width,channels,v,x_col,x_row,y_col,y_row,with_texture);
 			float Fij = - exp(- Dij / (2*sigma*sigma));
 			Ei += -Fij;
 		}
 	}
 	// normalize
-	E [i1 + height * i2] = Ei / ((j1max-j1min)*(j2max-j2min));
+	E[x_col + height * x_row] = Ei / ((y_col_max-y_col_min)*(y_row_max-y_row_min));
 }
 
 
-extern "C" 
 void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E){
-/*#if USE_TEX_I
-	printf("quickshiftGPU: using texture for I\n");
-	cudaArray * cu_array_I;
 
-	// Allocate array
-	cudaChannelFormatDesc descriptionI = cudaCreateChannelDesc<float>();
+	int with_texture = 1;
+	cudaArray * cuda_array_pixels;
+	cudaArray * cuda_array_density;
 
-	cudaExtent const ext = {image.height, image.width, image.channels};
-	cudaMalloc3DArray(&cu_array_I, &descriptionI, ext);
+	// texture for the image
+	if(with_texture){
 
-	cudaMemcpy3DParms copyParams = {0};
-	copyParams.extent = make_cudaExtent(image.height, image.width, image.channels);
-	copyParams.kind = cudaMemcpyHostToDevice;
-	copyParams.dstArray = cu_array_I;
-	// The pitched pointer is really tricky to get right. We give the
-	// pitch of a row, then the number of elements in a row, then the
-	// height, and we omit the 3rd dimension.
-	copyParams.srcPtr = make_cudaPitchedPtr(
-	(void*)&image.data[0], ext.width*sizeof(float), ext.width, ext.height);
-	cudaMemcpy3D(&copyParams);
+		cudaChannelFormatDesc descr_pixels = cudaCreateChannelDesc<float>();
 
-	cudaBindTextureToArray(texI, cu_array_I, descriptionI);
+		texture_pixels.normalized = false;
+		texture_pixels.filterMode = cudaFilterModePoint;
 
-	texI.normalized = false;
-	texI.filterMode = cudaFilterModePoint;
-#endif*/
+		cudaExtent const ext = {image.height, image.width, image.channels};
+		cudaMalloc3DArray(&cuda_array_pixels, &descr_pixels, ext);
 
+		cudaMemcpy3DParms copyParams = {0};
+		copyParams.extent = make_cudaExtent(image.height, image.width, image.channels);
+		copyParams.kind = cudaMemcpyHostToDevice;
+		copyParams.dstArray = cuda_array_pixels;
+		copyParams.srcPtr = make_cudaPitchedPtr((void*)&image.data[0], ext.width*sizeof(float), ext.width, ext.height);
+		cudaMemcpy3D(&copyParams);
 
-	float *map_d, *E_d, *gaps_d, *data;
-	
+		cudaBindTextureToArray(texture_pixels, cuda_array_pixels, descr_pixels);
+
+	}
+
+	// variables
+	float *map_cuda, *E_cuda, *gaps_cuda, *data;
 	int height = image.height;
 	int width = image.width;
 	int channels = image.channels;
-
-	unsigned int size = image.height*image.width * sizeof(float);
-	cudaMalloc( (void**) &data, size*image.channels);
-	cudaMalloc( (void**) &map_d, size);
-	cudaMalloc( (void**) &gaps_d, size);
-	cudaMalloc( (void**) &E_d, size);
-
-	cudaMemcpy( data, image.data, size*image.channels, cudaMemcpyHostToDevice);
-	cudaMemset( E_d, 0, size);
-
 	int R = (int) ceil (3 * sigma);
 	int Rd = (int) ceil (dist);
-	
+
+	// allocate memory on device
+	unsigned int size = image.height*image.width * sizeof(float);
+	cudaMalloc( (void**) &data, size*image.channels);
+	cudaMalloc( (void**) &map_cuda, size);
+	cudaMalloc( (void**) &gaps_cuda, size);
+	cudaMalloc( (void**) &E_cuda, size);
+
+	cudaMemcpy( data, image.data, size*image.channels, cudaMemcpyHostToDevice);
+	cudaMemset( E_cuda, 0, size);
+
+	// compute density (and copy result to host)
 	dim3 dimBlock(32,4,1);
-	dim3 dimGrid(iDivUp(width, dimBlock.x), iDivUp(height, dimBlock.y), 1);
-	compute_E_gpu <<<dimGrid,dimBlock>>> (data, height, width, channels, R, sigma, E_d, 0, 0);
-
+	dim3 dimGrid(divide_grid(width, dimBlock.x), divide_grid(height, dimBlock.y), 1);
+	compute_density <<<dimGrid,dimBlock>>> (data, height, width, channels, R, sigma, E_cuda,with_texture);
 	cudaThreadSynchronize();
+	cudaMemcpy(E, E_cuda, size, cudaMemcpyDeviceToHost);
 
-	cudaMemcpy(E, E_d, size, cudaMemcpyDeviceToHost);
+	// texture for density
+	if(with_texture){
 
+		cudaChannelFormatDesc descr_density = cudaCreateChannelDesc<float>();
 
-	/* Texture map E */
-/*#if USE_TEX_E
-	printf("quickshiftGPU: using texture for E\n");
-	cudaChannelFormatDesc descriptionE = cudaCreateChannelDesc<float>();
+		texture_density.normalized = false;
+		texture_density.filterMode = cudaFilterModePoint;
 
-	cudaArray * cu_array_E;
-	cudaMallocArray(&cu_array_E, &descriptionE, image.height, image.width);
+		cudaMallocArray(&cuda_array_density, &descr_density, image.height, image.width);
+		cudaMemcpyToArray(cuda_array_density, 0, 0, E, sizeof(float)*image.height*image.width, cudaMemcpyHostToDevice);
 
-	cudaMemcpyToArray(cu_array_E, 0, 0, E, sizeof(float)*image.height*image.width,
-					cudaMemcpyHostToDevice);
+		cudaBindTextureToArray(texture_density, cuda_array_density, descr_density);
 
-	texE.normalized = false;
-	texE.filterMode = cudaFilterModePoint;
+		cudaThreadSynchronize();
+	}
 
-	cudaBindTextureToArray(texE, cu_array_E,
-				descriptionE);
-
+	// find neighbors (and copy result to host)
+	find_neighbors <<<dimGrid,dimBlock>>> (data, height ,width, channels, E_cuda, dist, Rd, map_cuda, gaps_cuda, with_texture);
 	cudaThreadSynchronize();
-#endif*/
+	cudaMemcpy(map, map_cuda, size, cudaMemcpyDeviceToHost);
+	cudaMemcpy(gaps, gaps_cuda, size, cudaMemcpyDeviceToHost);
 
-	/* -----------------------------------------------------------------
-	 *																							 Find best neighbors
-	 * -------------------------------------------------------------- */
-	
-	find_neighbors_gpu <<<dimGrid,dimBlock>>> (data, height ,width, channels, E_d, dist, Rd, map_d, gaps_d);
-
-	cudaThreadSynchronize();
-	
-	cudaMemcpy(map, map_d, size, cudaMemcpyDeviceToHost);
-	cudaMemcpy(gaps, gaps_d, size, cudaMemcpyDeviceToHost);
-
-
+	// cleanup
 	cudaFree(data);
-	cudaFree(map_d);
-	cudaFree(gaps_d);
-	cudaFree(E_d);
-	//cudaUnbindTexture(texI);
-	//cudaFreeArray(cu_array_I);
-	//cudaUnbindTexture(texE);
-	//cudaFreeArray(cu_array_E);
+	cudaFree(map_cuda);
+	cudaFree(gaps_cuda);
+	cudaFree(E_cuda);
+	cudaUnbindTexture(texture_pixels);
+	cudaFreeArray(cuda_array_pixels);
+	cudaUnbindTexture(texture_density);
+	cudaFreeArray(cuda_array_density);
 
 }
