@@ -1,8 +1,4 @@
 #include <math.h>
-#include <string.h>
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include "quickshift_cmn.h"
 
 // distance between data at pixel i and j along K channels and adding the distance between i and j

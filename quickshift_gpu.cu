@@ -1,7 +1,3 @@
-#include <math.h>
-#include <string.h>
-#include <assert.h>
-#include <stdio.h>
 #include "quickshift_cmn.h"
 
 texture<float, 3, cudaReadModeElementType> texture_pixels;

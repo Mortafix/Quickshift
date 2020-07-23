@@ -1,8 +1,11 @@
+// std import
 #include <stdlib.h>
 #include <string.h>
 #include <fstream>
+// cuda
 #include <cuda_runtime_api.h>
 #include <cuda.h>
+// interface
 #include "quickshift_cmn.h"
 // read/write image
 #define STB_IMAGE_IMPLEMENTATION
