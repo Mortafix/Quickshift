@@ -100,8 +100,8 @@ __global__ void compute_density(const float * data, int height, int width, int c
 	for (y_row = y_row_min; y_row <= y_row_max; ++ y_row) {
 		for (y_col = y_col_min; y_col <= y_col_max; ++ y_col) {
 			float Dij = distance(data,height,width,channels,v,x_col,x_row,y_col,y_row,with_texture);
-			float Fij = - exp(- Dij / (2*sigma*sigma));
-			Ei += -Fij;
+			float Fij = exp(-Dij / (2*sigma*sigma));
+			Ei += Fij;
 		}
 	}
 	// normalize
@@ -147,13 +147,13 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 
 	// allocate memory on device
 	unsigned int size = image.height*image.width * sizeof(float);
-	cudaMalloc( (void**) &data, size*image.channels);
-	cudaMalloc( (void**) &map_cuda, size);
-	cudaMalloc( (void**) &gaps_cuda, size);
-	cudaMalloc( (void**) &E_cuda, size);
+	cudaMalloc((void**) &data, size*image.channels);
+	cudaMalloc((void**) &map_cuda, size);
+	cudaMalloc((void**) &gaps_cuda, size);
+	cudaMalloc((void**) &E_cuda, size);
 
-	cudaMemcpy( data, image.data, size*image.channels, cudaMemcpyHostToDevice);
-	cudaMemset( E_cuda, 0, size);
+	cudaMemcpy(data, image.data, size*image.channels, cudaMemcpyHostToDevice);
+	cudaMemset(E_cuda, 0, size);
 
 	// compute density (and copy result to host)
 	dim3 dimBlock(32,4,1);
