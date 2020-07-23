@@ -37,13 +37,12 @@ __global__ void find_neighbors(const float * data, int height, int width, int ch
 	int x_row = blockIdx.x * blockDim.x + threadIdx.x;
 	if (x_col >= height || x_row >= width) return; // out of bounds
 
-	int y_col,y_row;
-
 	// varibales for best neighbor
+	int y_col,y_row;
 	float E0 = get_density(with_texture,x_col,x_row,height,E);
 	float d_best = INF;
-	float y_col_best = x_col	;
-	float y_row_best = x_row	; 
+	float y_col_best = x_col;
+	float y_row_best = x_row; 
 
 	// initialize boundaries from dist
 	int y_col_min = MAX(x_col - Rd, 0);
@@ -82,9 +81,9 @@ __global__ void compute_density(const float * data, int height, int width, int c
 	int x_col = blockIdx.y * blockDim.y + threadIdx.y;
 	int x_row = blockIdx.x * blockDim.x + threadIdx.x;
 	if (x_col >= height || x_row >= width) return; // out of bounds
-	int y_col,y_row;
 
 	// initialize boundaries from sigma
+	int y_col,y_row;
 	int y_col_min = MAX(x_col - R, 0);
 	int y_col_max = MIN(x_col + R, height-1);
 	int y_row_min = MAX(x_row - R, 0);
@@ -109,9 +108,8 @@ __global__ void compute_density(const float * data, int height, int width, int c
 }
 
 
-void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E){
+void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, int with_texture){
 
-	int with_texture = 1;
 	cudaArray * cuda_array_pixels;
 	cudaArray * cuda_array_density;
 
@@ -189,9 +187,10 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 	cudaFree(map_cuda);
 	cudaFree(gaps_cuda);
 	cudaFree(E_cuda);
-	cudaUnbindTexture(texture_pixels);
-	cudaFreeArray(cuda_array_pixels);
-	cudaUnbindTexture(texture_density);
-	cudaFreeArray(cuda_array_density);
-
+	if(with_texture){
+		cudaUnbindTexture(texture_pixels);
+		cudaFreeArray(cuda_array_pixels);
+		cudaUnbindTexture(texture_density);
+		cudaFreeArray(cuda_array_density);
+	}
 }

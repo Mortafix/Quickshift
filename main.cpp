@@ -100,16 +100,17 @@ stbi_uc* QS_to_stbImage(qs_image image){
 int main(int argc, char ** argv){
 
 	// check options
-	if (argc != 5){
-		printf("USAGE: Quickshift <image> <mode>[cpu/gpu] <sigma> <dist>\n\n");
+	if (argc != 5 && argc != 6){
+		printf("USAGE: Quickshift <image> <mode>[cpu/gpu] <sigma> <dist> <texture_memory>[gpu:y/n]\n\n");
 		exit(-1);
 	}
 
 	// grab options
 	char *file = argv[1];
-	char *mode = argv[2];
-	float sigma = ::atof(argv[3]);
-	float dist = ::atof(argv[4]);
+	const char *mode = argv[2];
+	int sigma = atoi(argv[3]);
+	int dist =  atoi(argv[4]);
+	int texture = (argc == 6 && !strcmp(mode,"gpu") && !strcmp(argv[5],"y"));
 
 	// read image
 	qs_image image;
@@ -127,14 +128,16 @@ int main(int argc, char ** argv){
 	gaps = (float *) calloc(image.height*image.width, sizeof(float)) ;
 	E = (float *) calloc(image.height*image.width, sizeof(float)) ;
 
-	// QUICKSHIFT
-	printf("# Executing Quickshift in %s mode...\n   Sigma: %.1f\n   Dist:  %.1f\n",mode,sigma,dist);
+	// # QUICKSHIFT #
+	// printing
+	const char *tex_mem = "", *mode_msg;
+	if(!strcmp(mode,"cpu")) mode = "CPU"; else mode = "GPU";
+	if(!strcmp(mode,"GPU")){ if(texture) tex_mem = "   Texture: Yes\n"; else tex_mem = "   Texture: No\n"; }
+	printf("# Executing Quickshift in %s mode...\n   Sigma:   %d\n   Dist:    %d\n%s",mode,sigma,dist,tex_mem);
+	// execution
 	double start = seconds();
-	if(!strcmp(mode,"cpu")){
-		quickshift_cpu(image, sigma, dist, map, gaps, E);
-	} else if(!strcmp(mode,"gpu")){
-		quickshift_gpu(image, sigma, dist, map, gaps, E);
-	} else { printf("Mode must be cpu or gpu.\n"); exit(-1); }
+	if(!strcmp(mode,"CPU")) quickshift_cpu(image, sigma, dist, map, gaps, E);
+	else quickshift_gpu(image, sigma, dist, map, gaps, E, texture);
 	double stop = seconds();
 
 	// consistency check
@@ -146,7 +149,7 @@ int main(int argc, char ** argv){
 	sprintf(output, "%s", file);
 	char * point = strrchr(output, '.');
 	if(point) *point = '\0';
-	sprintf(output, "%s-%s_%.0f-%.0f.jpg", output, mode, sigma, dist);
+	sprintf(output, "%s-%s_%d-%d.jpg", output, mode, sigma, dist);
 
 	// write output image
 	flatmap = map_to_flatmap(map, image.height*image.width);
