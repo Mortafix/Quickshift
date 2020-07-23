@@ -156,7 +156,7 @@ int main(int argc, char ** argv){
 	imout = image_segmentation(image, flatmap, roots);
 	out_pixels = QS_to_stbImage(imout);
 	stbi_write_jpg(output, width, height, channels, out_pixels, 100);
-	printf("# Complete\n    Elapsed time: %f sec\n    Roots:        %d\n", stop - start, roots);
+	printf("# Complete\n    Elapsed time:  %f sec\n    Roots:         %d\n", stop - start, roots);
 
 	// cleanup
 	printf("\n");
