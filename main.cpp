@@ -12,7 +12,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image.h"
 #include "stb_image_write.h"
-// check and timer
+// cuda check and timer
 #include "common.h"
 
 qs_image image_segmentation(qs_image image, int * flatmap, int &roots){
@@ -101,7 +101,7 @@ int main(int argc, char ** argv){
 
 	// check options
 	if (argc != 5 && argc != 6){
-		printf("USAGE: Quickshift <image> <mode>[cpu/gpu] <sigma> <dist> <texture_memory>[gpu:y/n]\n\n");
+		printf("\nUSAGE: Quickshift <image> <mode>[cpu/gpu] <sigma> <dist> <texture_memory>[gpu:y/n]\n\n");
 		exit(-1);
 	}
 
@@ -135,10 +135,9 @@ int main(int argc, char ** argv){
 	if(!strcmp(mode,"GPU")){ if(texture) tex_mem = "   Texture: Yes\n"; else tex_mem = "   Texture: No\n"; }
 	printf("# Executing Quickshift in %s mode...\n   Sigma:   %d\n   Dist:    %d\n%s",mode,sigma,dist,tex_mem);
 	// execution
-	double start = seconds();
-	if(!strcmp(mode,"CPU")) quickshift_cpu(image, sigma, dist, map, gaps, E);
-	else quickshift_gpu(image, sigma, dist, map, gaps, E, texture);
-	double stop = seconds();
+	float time;
+	if(!strcmp(mode,"CPU")) quickshift_cpu(image, sigma, dist, map, gaps, E, time);
+	else quickshift_gpu(image, sigma, dist, map, gaps, E, texture, time);
 
 	// consistency check
 	for(int p = 0; p < image.height*image.width; p++)
@@ -156,7 +155,7 @@ int main(int argc, char ** argv){
 	imout = image_segmentation(image, flatmap, roots);
 	out_pixels = QS_to_stbImage(imout);
 	stbi_write_jpg(output, width, height, channels, out_pixels, 100);
-	printf("# Complete\n    Elapsed time:  %f sec\n    Roots:         %d\n", stop - start, roots);
+	printf("# Complete\n    Elapsed time:  %f sec\n    Roots:         %d\n", time, roots);
 
 	// cleanup
 	printf("\n");

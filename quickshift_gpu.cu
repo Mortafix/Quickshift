@@ -1,4 +1,7 @@
+#include <stdio.h>
+#include <stdlib.h>
 #include "quickshift_cmn.h"
+#include "common.h"
 
 texture<float, 3, cudaReadModeElementType> texture_pixels;
 texture<float, 2, cudaReadModeElementType> texture_density;
@@ -108,8 +111,11 @@ __global__ void compute_density(const float * data, int height, int width, int c
 }
 
 
-void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, int with_texture){
+void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, int with_texture, float & time){
 
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
 	cudaArray * cuda_array_pixels;
 	cudaArray * cuda_array_density;
 
@@ -122,16 +128,16 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 		texture_pixels.filterMode = cudaFilterModePoint;
 
 		cudaExtent const ext = {image.height, image.width, image.channels};
-		cudaMalloc3DArray(&cuda_array_pixels, &descr_pixels, ext);
+		CHECK( cudaMalloc3DArray(&cuda_array_pixels, &descr_pixels, ext) );
 
 		cudaMemcpy3DParms copyParams = {0};
 		copyParams.extent = make_cudaExtent(image.height, image.width, image.channels);
 		copyParams.kind = cudaMemcpyHostToDevice;
 		copyParams.dstArray = cuda_array_pixels;
 		copyParams.srcPtr = make_cudaPitchedPtr((void*)&image.data[0], ext.width*sizeof(float), ext.width, ext.height);
-		cudaMemcpy3D(&copyParams);
+		CHECK( cudaMemcpy3D(&copyParams) );
 
-		cudaBindTextureToArray(texture_pixels, cuda_array_pixels, descr_pixels);
+		CHECK( cudaBindTextureToArray(texture_pixels, cuda_array_pixels, descr_pixels) );
 
 	}
 
@@ -145,20 +151,21 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 
 	// allocate memory on device
 	unsigned int size = image.height*image.width * sizeof(float);
-	cudaMalloc((void**) &data, size*image.channels);
-	cudaMalloc((void**) &map_cuda, size);
-	cudaMalloc((void**) &gaps_cuda, size);
-	cudaMalloc((void**) &E_cuda, size);
+	CHECK( cudaMalloc((void**) &data, size*image.channels) );
+	CHECK( cudaMalloc((void**) &map_cuda, size) );
+	CHECK( cudaMalloc((void**) &gaps_cuda, size) );
+	CHECK( cudaMalloc((void**) &E_cuda, size) );
 
-	cudaMemcpy(data, image.data, size*image.channels, cudaMemcpyHostToDevice);
-	cudaMemset(E_cuda, 0, size);
+	CHECK( cudaMemcpy(data, image.data, size*image.channels, cudaMemcpyHostToDevice) );
+	CHECK( cudaMemset(E_cuda, 0, size) );
 
 	// compute density (and copy result to host)
 	dim3 dimBlock(32,4,1);
 	dim3 dimGrid(divide_grid(width, dimBlock.x), divide_grid(height, dimBlock.y), 1);
+	CHECK( cudaEventRecord(start) );
 	compute_density <<<dimGrid,dimBlock>>> (data, height, width, channels, R, sigma, E_cuda,with_texture);
-	cudaThreadSynchronize();
-	cudaMemcpy(E, E_cuda, size, cudaMemcpyDeviceToHost);
+	CHECK( cudaThreadSynchronize() );
+	CHECK( cudaMemcpy(E, E_cuda, size, cudaMemcpyDeviceToHost) );
 
 	// texture for density
 	if(with_texture){
@@ -168,29 +175,35 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 		texture_density.normalized = false;
 		texture_density.filterMode = cudaFilterModePoint;
 
-		cudaMallocArray(&cuda_array_density, &descr_density, image.height, image.width);
-		cudaMemcpyToArray(cuda_array_density, 0, 0, E, sizeof(float)*image.height*image.width, cudaMemcpyHostToDevice);
+		CHECK( cudaMallocArray(&cuda_array_density, &descr_density, image.height, image.width) );
+		CHECK( cudaMemcpyToArray(cuda_array_density, 0, 0, E, sizeof(float)*image.height*image.width, cudaMemcpyHostToDevice) );
 
-		cudaBindTextureToArray(texture_density, cuda_array_density, descr_density);
+		CHECK( cudaBindTextureToArray(texture_density, cuda_array_density, descr_density) );
 
-		cudaThreadSynchronize();
+		CHECK( cudaThreadSynchronize() );
 	}
 
 	// find neighbors (and copy result to host)
 	find_neighbors <<<dimGrid,dimBlock>>> (data, height ,width, channels, E_cuda, dist, Rd, map_cuda, gaps_cuda, with_texture);
-	cudaThreadSynchronize();
-	cudaMemcpy(map, map_cuda, size, cudaMemcpyDeviceToHost);
-	cudaMemcpy(gaps, gaps_cuda, size, cudaMemcpyDeviceToHost);
+	CHECK( cudaThreadSynchronize() );
+	CHECK( cudaMemcpy(map, map_cuda, size, cudaMemcpyDeviceToHost) );
+	CHECK( cudaMemcpy(gaps, gaps_cuda, size, cudaMemcpyDeviceToHost) );
+
+	// time elapsed
+	CHECK( cudaEventRecord(stop) );
+	CHECK( cudaEventSynchronize(stop) );
+	cudaEventElapsedTime(&time, start, stop);
+	time /= 1000.0;
 
 	// cleanup
-	cudaFree(data);
-	cudaFree(map_cuda);
-	cudaFree(gaps_cuda);
-	cudaFree(E_cuda);
+	CHECK( cudaFree(data) );
+	CHECK( cudaFree(map_cuda) );
+	CHECK( cudaFree(gaps_cuda) );
+	CHECK( cudaFree(E_cuda) );
 	if(with_texture){
-		cudaUnbindTexture(texture_pixels);
-		cudaFreeArray(cuda_array_pixels);
-		cudaUnbindTexture(texture_density);
-		cudaFreeArray(cuda_array_density);
+		CHECK( cudaUnbindTexture(texture_pixels) );
+		CHECK( cudaFreeArray(cuda_array_pixels) );
+		CHECK( cudaUnbindTexture(texture_density) );
+		CHECK( cudaFreeArray(cuda_array_density) );
 	}
 }
