@@ -19,7 +19,7 @@ float distance(float const * data, int height, int width, int channels, int x_co
 	return dist;
 }
 
-void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, float & time){
+void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, float * time){
 
 	// variables
 	float const * data = image.data;
@@ -29,7 +29,8 @@ void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float 
 	int R = (int) ceil (3 * sigma);
 	int Rd = (int) ceil (dist);
 
-	float start = seconds();
+	double start = seconds();
+	
 	// for every pixel in the image compute its density
 	for (int x_row = 0; x_row < width; x_row++) {
 		for (int x_col = 0; x_col < height; x_col++) {
@@ -91,7 +92,6 @@ void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float 
 		}
 	}
 
-	float stop = seconds();
-	time = stop - start;
+	*time = seconds() - start;
 
 }

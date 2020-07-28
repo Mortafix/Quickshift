@@ -111,7 +111,7 @@ __global__ void compute_density(const float * data, int height, int width, int c
 }
 
 
-void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, int with_texture, float & time){
+void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, int with_texture, float * time){
 
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
@@ -192,8 +192,8 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 	// time elapsed
 	CHECK( cudaEventRecord(stop) );
 	CHECK( cudaEventSynchronize(stop) );
-	cudaEventElapsedTime(&time, start, stop);
-	time /= 1000.0;
+	cudaEventElapsedTime(time, start, stop);
+	*time /= 1000.0;
 
 	// cleanup
 	CHECK( cudaFree(data) );
