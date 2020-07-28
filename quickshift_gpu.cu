@@ -113,6 +113,8 @@ __global__ void compute_density(const float * data, int height, int width, int c
 
 void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, int with_texture, float * time){
 
+	CHECK( cudaSetDevice(2) );
+
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
@@ -160,7 +162,7 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 	CHECK( cudaMemset(E_cuda, 0, size) );
 
 	// compute density (and copy result to host)
-	dim3 dimBlock(32,4,1);
+	dim3 dimBlock(16,16,1);
 	dim3 dimGrid(divide_grid(width, dimBlock.x), divide_grid(height, dimBlock.y), 1);
 	CHECK( cudaEventRecord(start) );
 	compute_density <<<dimGrid,dimBlock>>> (data, height, width, channels, R, sigma, E_cuda,with_texture);
@@ -200,10 +202,10 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 	CHECK( cudaFree(map_cuda) );
 	CHECK( cudaFree(gaps_cuda) );
 	CHECK( cudaFree(E_cuda) );
+	CHECK( cudaUnbindTexture(texture_pixels) );
+	CHECK( cudaUnbindTexture(texture_density) );
 	if(with_texture){
-		CHECK( cudaUnbindTexture(texture_pixels) );
 		CHECK( cudaFreeArray(cuda_array_pixels) );
-		CHECK( cudaUnbindTexture(texture_density) );
 		CHECK( cudaFreeArray(cuda_array_density) );
 	}
 }
