@@ -91,6 +91,7 @@ void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float 
 		}
 	}
 
-	time = seconds() - start;
+	float stop = seconds();
+	time = stop - start;
 
 }

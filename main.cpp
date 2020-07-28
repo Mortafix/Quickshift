@@ -135,7 +135,7 @@ int main(int argc, char ** argv){
 	if(!strcmp(mode,"GPU")){ if(texture) tex_mem = "   Texture: Yes\n"; else tex_mem = "   Texture: No\n"; }
 	printf("# Executing Quickshift in %s mode...\n   Sigma:   %d\n   Dist:    %d\n%s",mode,sigma,dist,tex_mem);
 	// execution
-	float time;
+	float time = 0;
 	if(!strcmp(mode,"CPU")) quickshift_cpu(image, sigma, dist, map, gaps, E, time);
 	else quickshift_gpu(image, sigma, dist, map, gaps, E, texture, time);
 
