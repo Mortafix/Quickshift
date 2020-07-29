@@ -6,16 +6,19 @@
 texture<float, 3, cudaReadModeElementType> texture_pixels;
 texture<float, 2, cudaReadModeElementType> texture_density;
 
+// get pixel value from data matrix or texture memory (base on texture mode)
 __device__ float get_pixel(int with_texture, int x, int y, int ch, int height, int width, const float * data){
 	if(with_texture) return tex3D(texture_pixels, x, y, ch);
 	else return data[x + height*y + width*height*ch];
 }
 
+// get density from density matrix or texture memory (base on texture mode)
 __device__ float get_density(int with_texture, int x, int y, int height, float * E){
 	if(with_texture) return tex2D(texture_density, x, y);
 	else return E[x + height*y];
 }
 
+// distance between data at pixel i and j along K channels and adding the distance between i and j
 __device__ float distance(const float * data, int height, int width, int channels, float * v, int x_col, int x_row, int y_col, int y_row, int with_texture){
 	int d1 = y_col - x_col;
 	int d2 = y_row - x_row;
@@ -28,12 +31,13 @@ __device__ float distance(const float * data, int height, int width, int channel
 	return dist;
 }
 
+// divide grid base on block size
 int divide_grid(int num, int den){
 	return (num % den != 0) ? (num / den + 1) : (num / den);
 }
 
 
-__global__ void find_neighbors(const float * data, int height, int width, int channels, float * E, float dist, int Rd, float * map, float * gaps, int with_texture){	 
+__global__ void find_neighbors(const float * data, int height, int width, int channels, float * E, float alpha, int Rd, float * map, float * gaps, int with_texture){	 
 	
 	// thread index
 	int x_col = blockIdx.y * blockDim.y + threadIdx.y;
@@ -47,7 +51,7 @@ __global__ void find_neighbors(const float * data, int height, int width, int ch
 	float y_col_best = x_col;
 	float y_row_best = x_row; 
 
-	// initialize boundaries from dist
+	// initialize boundaries from alpha
 	int y_col_min = MAX(x_col - Rd, 0);
 	int y_col_max = MIN(x_col + Rd, height-1);
 	int y_row_min = MAX(x_row - Rd, 0);
@@ -58,11 +62,12 @@ __global__ void find_neighbors(const float * data, int height, int width, int ch
 	for (int k = 0; k < channels; ++k)
 		v[k] = get_pixel(with_texture,x_col,x_row,k,height,width,data);
 
+	// for each pixel in the area (alpha) find the best root
 	for (y_row = y_row_min; y_row <= y_row_max; ++ y_row) {
 		for (y_col = y_col_min; y_col <= y_col_max; ++ y_col) {
 			if (get_density(with_texture,y_col,y_row,height,E) > E0) {
 				float Dij = distance(data,height,width,channels,v,x_col,x_row,y_col,y_row,with_texture);
-				if (Dij <= dist*dist && Dij < d_best) {
+				if (Dij <= alpha*alpha && Dij < d_best) {
 					d_best = Dij;
 					y_col_best = y_col;
 					y_row_best = y_row;
@@ -98,7 +103,7 @@ __global__ void compute_density(const float * data, int height, int width, int c
 	for (int k = 0; k < channels; ++k)
 		v[k] = get_pixel(with_texture,x_col,x_row,k,height,width,data);
 
-	// for each pixel in the area (sigma) compute the distance between it and the source pixel
+	// for each pixel in the area (sigma) compute the density (between it and the source pixel)
 	for (y_row = y_row_min; y_row <= y_row_max; ++ y_row) {
 		for (y_col = y_col_min; y_col <= y_col_max; ++ y_col) {
 			float Dij = distance(data,height,width,channels,v,x_col,x_row,y_col,y_row,with_texture);
@@ -111,7 +116,7 @@ __global__ void compute_density(const float * data, int height, int width, int c
 }
 
 
-void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, int with_texture, float * time){
+void quickshift_gpu(qs_image image, float sigma, float alpha, float * map, float * gaps, float * E, int with_texture, float * time){
 
 	CHECK( cudaSetDevice(2) );
 
@@ -149,7 +154,7 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 	int width = image.width;
 	int channels = image.channels;
 	int R = (int) ceil (3 * sigma);
-	int Rd = (int) ceil (dist);
+	int Rd = (int) ceil (alpha);
 
 	// allocate memory on device
 	unsigned int size = image.height*image.width * sizeof(float);
@@ -186,7 +191,7 @@ void quickshift_gpu(qs_image image, float sigma, float dist, float * map, float 
 	}
 
 	// find neighbors (and copy result to host)
-	find_neighbors <<<dimGrid,dimBlock>>> (data, height ,width, channels, E_cuda, dist, Rd, map_cuda, gaps_cuda, with_texture);
+	find_neighbors <<<dimGrid,dimBlock>>> (data, height ,width, channels, E_cuda, alpha, Rd, map_cuda, gaps_cuda, with_texture);
 	CHECK( cudaThreadSynchronize() );
 	CHECK( cudaMemcpy(map, map_cuda, size, cudaMemcpyDeviceToHost) );
 	CHECK( cudaMemcpy(gaps, gaps_cuda, size, cudaMemcpyDeviceToHost) );

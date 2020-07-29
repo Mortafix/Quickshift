@@ -101,7 +101,7 @@ int main(int argc, char ** argv){
 
 	// check options
 	if (argc != 5 && argc != 6){
-		printf("\nUSAGE: Quickshift <image> <mode>[cpu/gpu] <sigma> <dist> <texture_memory>[gpu:y/n]\n\n");
+		printf("\nUSAGE: Quickshift <image> <mode>[cpu/gpu] <sigma> <alpha> <texture_memory>[gpu:y/n]\n\n");
 		exit(-1);
 	}
 
@@ -109,7 +109,7 @@ int main(int argc, char ** argv){
 	char *file = argv[1];
 	const char *mode = argv[2];
 	int sigma = atoi(argv[3]);
-	int dist =  atoi(argv[4]);
+	int alpha =  atoi(argv[4]);
 	int texture = (argc == 6 && !strcmp(mode,"gpu") && !strcmp(argv[5],"y"));
 
 	// read image
@@ -133,11 +133,11 @@ int main(int argc, char ** argv){
 	const char *tex_mem = "", *mode_msg;
 	if(!strcmp(mode,"cpu")) mode = "CPU"; else mode = "GPU";
 	if(!strcmp(mode,"GPU")){ if(texture) tex_mem = "   Texture: Yes\n"; else tex_mem = "   Texture: No\n"; }
-	printf("# Executing Quickshift in %s mode...\n   Sigma:   %d\n   Dist:    %d\n%s",mode,sigma,dist,tex_mem);
+	printf("# Executing Quickshift in %s mode...\n   Sigma:   %d\n   Alpha:   %d\n%s",mode,sigma,alpha,tex_mem);
 	// execution
 	float time;
-	if(!strcmp(mode,"CPU")) quickshift_cpu(image, sigma, dist, map, gaps, E, &time);
-	else quickshift_gpu(image, sigma, dist, map, gaps, E, texture, &time);
+	if(!strcmp(mode,"CPU")) quickshift_cpu(image, sigma, alpha, map, gaps, E, &time);
+	else quickshift_gpu(image, sigma, alpha, map, gaps, E, texture, &time);
 
 	// consistency check
 	for(int p = 0; p < image.height*image.width; p++)
@@ -149,7 +149,7 @@ int main(int argc, char ** argv){
 	sprintf(output, "%s", file);
 	char * point = strrchr(output, '.');
 	if(point) *point = '\0';
-	sprintf(output, "%s-%s_%d-%d.jpg", output, mode, sigma, dist);
+	sprintf(output, "%s-%s_%d-%d.jpg", output, mode, sigma, alpha);
 
 	// write output image
 	flatmap = map_to_flatmap(map, image.height*image.width);

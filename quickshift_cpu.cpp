@@ -19,7 +19,7 @@ float distance(float const * data, int height, int width, int channels, int x_co
 	return dist;
 }
 
-void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float * gaps, float * E, float * time){
+void quickshift_cpu(qs_image image, float sigma, float alpha, float * map, float * gaps, float * E, float * time){
 
 	// variables
 	float const * data = image.data;
@@ -27,7 +27,7 @@ void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float 
 	int width = image.width;
 	int channels = image.channels;
 	int R = (int) ceil (3 * sigma);
-	int Rd = (int) ceil (dist);
+	int Rd = (int) ceil (alpha);
 
 	double start = seconds();
 	
@@ -42,7 +42,7 @@ void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float 
 			int y_row_min = MAX(x_row - R, 0	 );
 			int y_row_max = MIN(x_row + R, width-1);
 
-			// for each pixel in the area (sigma) compute the distance between it and the source pixel
+			// for each pixel in the area (sigma) compute the density (between it and the source pixel)
 			for (int y_row = y_row_min; y_row <= y_row_max; ++ y_row) {
 				for (int y_col = y_col_min; y_col <= y_col_max; ++ y_col) {
 					float Dij = distance(data,height,width,channels,x_col,x_row,y_col,y_row);
@@ -65,17 +65,18 @@ void quickshift_cpu(qs_image image, float sigma, float dist, float * map, float 
 			float y_col_best = x_col;
 			float y_row_best = x_row; 
 
-			// initialize boundaries from dist
+			// initialize boundaries from alpha
 			int y_col_min = MAX(x_col - Rd, 0);
 			int y_col_max = MIN(x_col + Rd, height-1);
 			int y_row_min = MAX(x_row - Rd, 0);
 			int y_row_max = MIN(x_row + Rd, width-1);
 
+			// for each pixel in the area (alpha) find the best root
 			for (int y_row = y_row_min; y_row <= y_row_max; ++ y_row) {
 				for (int y_col = y_col_min; y_col <= y_col_max; ++ y_col) {
 					if (E[y_col + height * y_row] > E0) {
 						float Dij = distance(data,height,width,channels, x_col,x_row, y_col,y_row);					 
-						if (Dij <= dist*dist && Dij < d_best) {
+						if (Dij <= alpha*alpha && Dij < d_best) {
 							d_best = Dij;
 							y_col_best = y_col;
 							y_row_best = y_row;
