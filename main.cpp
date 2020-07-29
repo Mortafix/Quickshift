@@ -144,6 +144,7 @@ int main(int argc, char ** argv){
 		if(map[p] == p) assert(gaps[p] == INF);
 
 	// output file name
+	if(!strcmp(mode,"GPU") && texture) mode = "GPUt";
 	char output[1024];
 	sprintf(output, "%s", file);
 	char * point = strrchr(output, '.');

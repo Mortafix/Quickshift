@@ -7,12 +7,12 @@ texture<float, 3, cudaReadModeElementType> texture_pixels;
 texture<float, 2, cudaReadModeElementType> texture_density;
 
 __device__ float get_pixel(int with_texture, int x, int y, int ch, int height, int width, const float * data){
-	if(with_texture) return tex3D(texture_pixels, x+0.5f, y+0.5f, ch+0.5f);
+	if(with_texture) return tex3D(texture_pixels, x, y, ch);
 	else return data[x + height*y + width*height*ch];
 }
 
 __device__ float get_density(int with_texture, int x, int y, int height, float * E){
-	if(with_texture) return tex2D(texture_density, x+0.5f, y+0.5f);
+	if(with_texture) return tex2D(texture_density, x, y);
 	else return E[x + height*y];
 }
 
